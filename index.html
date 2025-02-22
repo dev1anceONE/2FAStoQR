@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2FAS (.2fas) to QR Converter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.9.1/jszip.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f4f4f4; position: relative; }
+        h2 { color: #333; }
+        input[type="file"] { display: none; }
+        .container { max-width: 1000px; margin: auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); position: relative; }
+        .qr-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; margin-top: 20px; }
+        .qr-code { padding: 20px; border: 1px solid #ddd; background: white; text-align: center; border-radius: 8px; display: flex; flex-direction: column; align-items: center; }
+        .qr-code p { margin-top: 15px; margin-bottom: 30px; /* Zwiększony odstęp między kodem QR a napisem */ }
+        .status { margin-top: 10px; font-weight: bold; color: green; }
+        button { margin-top: 10px; padding: 10px 20px; border: none; background: #ed1c24; color: white; cursor: pointer; border-radius: 5px; }
+        button:hover { background: #cc0000; }
+        .choose-btn { background: #ed1c24; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer; }
+        .choose-btn:hover { background: #cc0000; }
+        .language-selector { position: absolute; top: 20px; right: 20px; }
+        .loader { display: none; border: 8px solid #f3f3f3; border-top: 8px solid #ed1c24; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .logo { max-width: 200px; margin-bottom: 20px; cursor: pointer; }
+        @media print {
+            .logo, .choose-btn, .status, #downloadAllBtn, #printBtn, .language-selector, h2 {
+                display: none;
+            }
+            .container {
+                padding: 0;
+                box-shadow: none;
+                background: white;
+            }            
+            .qr-container {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 20px;
+                margin-top: 20px;
+            }            
+            .qr-code {
+                padding: 10px;
+                border: 1px solid #ddd;
+                background: white;
+                text-align: center;
+                border-radius: 8px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                page-break-inside: avoid;
+                margin-bottom: 20px;
+            }     
+            .qr-code p {
+                margin: 10px 0;
+                font-weight: bold;
+                font-size: 14px; 
+            }            
+            button, .choose-btn, .logo, .status, #printBtn, #downloadAllBtn {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="javascript:void(0);" title="Odśwież stronę" onclick="window.location.reload();">
+            <img src="2fas_logo.png" alt="2FAS Logo" class="logo">
+        </a>
+
+        <div class="language-selector">
+            <select id="languageSelect" onchange="changeLanguage(this.value)" class="choose-btn">
+                <option value="en">English</option>
+                <option value="pl">Polski</option>
+            </select>
+        </div>
+        <h2 id="title">2FAS (.2fas) to QR Converter</h2>
+        <input type="file" id="fileInput" accept=".json,.2fas">
+        <button class="choose-btn" onclick="document.getElementById('fileInput').click()" id="chooseBtn">Choose File</button>
+        <div class="loader" id="loader"></div>
+        <p class="status" id="statusMessage"></p>
+        <div class="qr-container" id="qrContainer"></div>
+        <button id="downloadAllBtn" class="choose-btn" style="display: none;" onclick="downloadAllQRs()">Download All</button>
+        <button id="printBtn" class="choose-btn" style="display: none;" onclick="window.print()">Print</button>
+    </div>
+    <script>
+        let language = 'en';
+        const texts = {
+            pl: { 
+                title: "2FAS (.2fas) do QR Konwerter", 
+                chooseFileBtn: "Wybierz Plik", 
+                downloadAllBtn: "Pobierz Wszystkie", 
+                generated: "{count} kody QR zostały wygenerowane!", 
+                downloadSingle: "Pobierz", 
+                printBtn: "Drukuj", 
+                zipFileName: "wszystkie_kody_qr.zip" 
+            },
+            en: { 
+                title: "2FAS (.2fas) to QR Converter", 
+                chooseFileBtn: "Choose File", 
+                downloadAllBtn: "Download All", 
+                generated: "{count} QR codes had been Generated!", 
+                downloadSingle: "Download", 
+                printBtn: "Print", 
+                zipFileName: "all_qrs.zip" 
+            }
+        };
+        function changeLanguage(lang) {
+            language = lang;
+            document.getElementById('title').textContent = texts[language].title;
+            document.getElementById('chooseBtn').textContent = texts[language].chooseFileBtn;
+            document.getElementById('downloadAllBtn').textContent = texts[language].downloadAllBtn;
+            document.getElementById('printBtn').textContent = texts[language].printBtn;
+            document.title = texts[language].title;
+        }
+
+        document.getElementById('fileInput').addEventListener('change', function(event) {
+            document.getElementById('chooseBtn').style.display = 'none';
+            document.getElementById('loader').style.display = 'block';
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    generateQRs(data.services);
+                } catch (err) {
+                    document.getElementById('statusMessage').textContent = "Błąd odczytu pliku: " + err.message;
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function generateQRs(services) {
+            const container = document.getElementById("qrContainer");
+            container.innerHTML = "";
+            let count = 0;
+            window.qrData = [];  
+            services.forEach((service, index) => {
+                if (!service.otp || service.otp.tokenType !== "TOTP") return;
+                const name = service.name.replace(/\s+/g, "_") || "Unknown";
+                const secret = service.secret || "";
+                const label = service.otp && service.otp.label ? service.otp.label.replace(/\s+/g, "_") : "NoLabel";
+                const account = service.otp && service.otp.account ? service.otp.account.replace(/\s+/g, "_") : name;
+                if (!secret) return;
+                const otpauth = `otpauth://totp/${encodeURIComponent(account)}?secret=${secret}&issuer=${encodeURIComponent(name)}`;
+                const div = document.createElement("div");
+                div.className = "qr-code";
+                div.innerHTML = `<p><strong>${name}</strong></p><div id="qr-${index}"></div><button onclick="downloadQR(${index}, '${name}')">${texts[language].downloadSingle}</button>`;
+                container.appendChild(div);
+                new QRCode(document.getElementById(`qr-${index}`), otpauth);
+                count++;
+                const canvas = document.getElementById(`qr-${index}`).querySelector("canvas");
+                if (canvas) {
+                    window.qrData.push({ name, dataUrl: canvas.toDataURL() });
+                }
+            });
+            document.getElementById('statusMessage').textContent = texts[language].generated.replace("{count}", count);
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('downloadAllBtn').style.display = 'inline-block';
+            document.getElementById('printBtn').style.display = 'inline-block';
+        }
+
+        function downloadAllQRs() {
+            const zip = new JSZip();
+            window.qrData.forEach((qr, index) => {
+                zip.file(`${qr.name}.png`, qr.dataUrl.split(',')[1], {base64: true});
+            });
+            zip.generateAsync({type: "blob"}).then(function(content) {
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(content);
+                a.download = texts[language].zipFileName;
+                a.click();
+            });
+        }
+
+        function downloadQR(index, name) {
+            const canvas = document.getElementById(`qr-${index}`).querySelector("canvas");
+            if (canvas) {
+                const link = document.createElement("a");
+                link.href = canvas.toDataURL();
+                link.download = `${name}.png`;
+                link.click();
+            }
+        }
+    </script>
+</body>
+</html>
